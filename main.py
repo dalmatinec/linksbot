@@ -38,11 +38,16 @@ def get_reply_keyboard():
 # Обработчик команды /start
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    # Отправка картинки
-    photo = FSInputFile("welcome.jpg")  # Убедись, что этот файл есть в проекте
     text = "🎉 Добро пожаловать!\n\n🔍 На связи лучший сервис по поиску органики.\n⏳ Ссылка действует 15 минут и доступна только 2 людям.\n📩 Для получения новой ссылки нажмите соответствующую кнопку!"
-
-    await message.answer_photo(photo=photo, caption=text, reply_markup=get_inline_keyboard())
+    
+    try:
+        # Отправка картинки
+        photo = FSInputFile("welcome.jpg")
+        await message.answer_photo(photo=photo, caption=text, reply_markup=get_inline_keyboard())
+    except FileNotFoundError:
+        # Если файл не найден, отправляем только текст
+        await message.answer(text, reply_markup=get_inline_keyboard())
+        print("WARNING: welcome.jpg file not found. Please add this file to the project.")
 
 # Обработчик кнопки "Наши ссылки"
 @dp.message()
@@ -53,13 +58,16 @@ async def handle_links_button(message: types.Message):
         if user_id in active_links:
             remaining_time = int(active_links[user_id] - time.time())
             if remaining_time > 0:
-                await message.answer(f"⚠️ У вас уже есть активная ссылка!\n⏳ Новую можно получить через {remaining_time // 60} мин {remaining_time % 60} сек.")
+                await message.answer(f"⚠️ У вас уже есть активная ссылка!\n⏳ Новую можно получить через {remaining_time // 60} мин {remaining_time % 60} сек.", reply_markup=get_reply_keyboard())
                 return
 
         invite_link = await create_invite_link()
         active_links[user_id] = time.time() + 900  # Запоминаем время истечения ссылки
 
-        await message.answer(f"👉 Ваша ссылка: {invite_link}")
+        await message.answer(f"👉 Ваша ссылка: {invite_link}", reply_markup=get_reply_keyboard())
+    else:
+        # Send the reply keyboard for any other message
+        await message.answer("Используйте кнопки для взаимодействия с ботом.", reply_markup=get_reply_keyboard())
 
 # Обработчик инлайн-кнопки "Наш чат"
 @dp.callback_query(lambda c: c.data == "get_chat_link")
@@ -80,6 +88,9 @@ async def send_chat_link(callback: types.CallbackQuery):
 
 # Запуск бота
 async def main():
+    print("Bot started! Press Ctrl+C to stop")
+    
+    # Send a startup message to the console
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
