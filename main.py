@@ -84,8 +84,6 @@ async def send_chat_link(callback: types.CallbackQuery):
 # Запуск бота
 async def main():
     print("Bot started! Press Ctrl+C to stop")
-    # Delete webhook to prevent conflicts
-    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
