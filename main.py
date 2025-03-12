@@ -38,7 +38,7 @@ def get_reply_keyboard():
 # Обработчик команды /start
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    text = "🎉 Добро пожаловать!\n\n🔍 На связи лучший сервис по поиску органики.\n⏳ Ссылка действует 15 минут и доступна только 2 людям.\n📩 Для получения новой ссылки нажмите /start!"
+    text = "🎉 Добро пожаловать!\n\n🔍 В лучший сервис по поиску органики.\n⏳ Ссылка действует 15 минут и доступна только 2 людям.\n📩 Для получения новой ссылки нажмите соответствующую кнопку!"
 
     try:
         # Отправка картинки
@@ -58,10 +58,13 @@ async def handle_links_button(message: types.Message):
     if message.text == "🏴‍☠️ Наши ссылки":
         user_id = message.from_user.id
 
-        if user_id in active_links:
-            await message.answer(f"⚠️ У вас уже есть активная ссылка!", reply_markup=get_reply_keyboard())
+        # Проверка на активную ссылку
+        if user_id in active_links and active_links[user_id] > time.time():
+            remaining_time = active_links[user_id] - time.time()
+            await message.answer(f"⚠️ У вас уже есть активная ссылка! Время до истечения: {int(remaining_time)} секунд.", reply_markup=get_reply_keyboard())
             return
 
+        # Генерация новой ссылки
         invite_link = await create_invite_link()
         active_links[user_id] = time.time() + 900  # Запоминаем время истечения ссылки
 
@@ -80,10 +83,13 @@ async def send_chat_link(message: types.Message):
 async def send_chat_link(callback: types.CallbackQuery):
     user_id = callback.from_user.id
 
-    if user_id in active_links:
-        await callback.message.answer("⚠️ У вас уже есть активная ссылка!")
+    # Проверка на активную ссылку
+    if user_id in active_links and active_links[user_id] > time.time():
+        remaining_time = active_links[user_id] - time.time()
+        await callback.message.answer(f"⚠️ У вас уже есть активная ссылка! Время до истечения: {int(remaining_time)} секунд.")
         return
 
+    # Генерация новой ссылки
     invite_link = await create_invite_link()
     active_links[user_id] = time.time() + 900
 
