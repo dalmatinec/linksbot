@@ -1,48 +1,100 @@
+import asyncio
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
-import os
-from config import TOKEN, CHAT_ID  # Берём данные из конфига
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.types import FSInputFile
+import time
+
+from config import TOKEN, CHAT_ID
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 
-# Обычная клавиатура (только в ЛС)
-private_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-private_keyboard.add(KeyboardButton("🏴‍☠️ Наши ссылки"))
+# Храним активные ссылки, чтобы не выдавать новые раньше времени
+active_links = {}
 
-# Inline-клавиатура (онлайн-кнопки)
-inline_kb = InlineKeyboardMarkup(row_width=1)
-inline_kb.add(
-    InlineKeyboardButton("💬 Наш чат", callback_data="get_chat_link"),
-    InlineKeyboardButton("⚡ Экспресс Бот", url="https://t.me/ExpressBot")
-)
+# Функция генерации ссылки на чат
+async def create_invite_link():
+    chat = await bot.get_chat(CHAT_ID)
+    invite_link = await chat.create_invite_link(expire_date=int(time.time()) + 900, member_limit=2)
+    return invite_link.invite_link
 
-@dp.message_handler(commands=["start"])
+# Клавиатура для инлайн-кнопок
+def get_inline_keyboard():
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Наш чат", callback_data="get_chat_link")],
+        [InlineKeyboardButton(text="⚡ Экспресс Бот", url="https://t.me/FastShopkz_bot")]
+    ])
+    return keyboard
+
+# Обычная клавиатура (только для ЛС)
+def get_reply_keyboard():
+    keyboard = ReplyKeyboardBuilder()
+    keyboard.button(text="🏴‍☠️ Наши ссылки")
+    keyboard.adjust(1)
+    return keyboard.as_markup(resize_keyboard=True)
+
+# Обработчик команды /start
+@dp.message(Command("start"))
 async def start(message: types.Message):
-    if message.chat.type == "private":  # В ЛС показываем клавиатуру
-        await message.answer("Привет! Здесь ты можешь получить ссылки.", reply_markup=private_keyboard)
+    text = "🎉 Добро пожаловать!\n\n🔍 На связи лучший сервис по поиску органики.\n⏳ Ссылка действует 15 минут и доступна только 2 людям.\n📩 Для получения новой ссылки нажмите /start!"
+
+    try:
+        # Отправка картинки
+        photo = FSInputFile("welcome.jpg")
+        await message.answer_photo(photo=photo, caption=text, reply_markup=get_inline_keyboard() if message.chat.type == "private" else None)
+    except FileNotFoundError:
+        # Если файл не найден, отправляем только текст
+        await message.answer(text, reply_markup=get_inline_keyboard() if message.chat.type == "private" else None)
+        print("WARNING: welcome.jpg file not found. Please add this file to the project.")
+
+# Обработчик кнопки "Наши ссылки" (только в ЛС)
+@dp.message()
+async def handle_links_button(message: types.Message):
+    if message.chat.type != "private":
+        return  # Игнорируем сообщения в группе
+
+    if message.text == "🏴‍☠️ Наши ссылки":
+        user_id = message.from_user.id
+
+        if user_id in active_links:
+            await message.answer(f"⚠️ У вас уже есть активная ссылка!", reply_markup=get_reply_keyboard())
+            return
+
+        invite_link = await create_invite_link()
+        active_links[user_id] = time.time() + 900  # Запоминаем время истечения ссылки
+
+        await message.answer(f"👉 Ваша ссылка: {invite_link}", reply_markup=get_reply_keyboard())
     else:
-        await message.answer("Этот бот работает в ЛС и в группе.")
+        await message.answer("Используйте кнопки для взаимодействия с ботом.", reply_markup=get_reply_keyboard() if message.chat.type == "private" else None)
 
-@dp.message_handler(lambda message: message.text.lower() in ["ссылка", "/links"])
-async def send_links(message: types.Message):
-    if message.chat.type == "private":  # В ЛС с inline-клавиатурой
-        await message.answer_photo(
-            photo="https://telegra.ph/file/your-image.jpg",
-            caption="Выбери нужный вариант:",
-            reply_markup=inline_kb
-        )
-    else:  # В группе без клавиатуры
-        await message.answer_photo(
-            photo="https://telegra.ph/file/your-image.jpg",
-            caption="Вот ссылка на наш чат:\n💬 t.me/joinchat/yourchat"
-        )
+# Обработчик команды "/links" или "ссылка" в группе
+@dp.message(lambda message: message.chat.type != "private" and message.text.lower() in ["ссылка", "/links"])
+async def send_chat_link(message: types.Message):
+    invite_link = await create_invite_link()
+    await message.answer(f"💬 Ваша ссылка: {invite_link}")
 
-@dp.callback_query_handler(lambda call: call.data == "get_chat_link")
-async def generate_link(call: types.CallbackQuery):
-    invite_link = await bot.export_chat_invite_link(CHAT_ID)  # Генерация ссылки на чат
-    await call.message.answer(f"💬 Чат: {invite_link}")
+# Обработчик инлайн-кнопки "Наш чат"
+@dp.callback_query(lambda c: c.data == "get_chat_link")
+async def send_chat_link(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+
+    if user_id in active_links:
+        await callback.message.answer("⚠️ У вас уже есть активная ссылка!")
+        return
+
+    invite_link = await create_invite_link()
+    active_links[user_id] = time.time() + 900
+
+    await callback.message.answer(f"👉 Ваша ссылка: {invite_link}")
+    await callback.answer()
+
+# Запуск бота
+async def main():
+    print("Bot started! Press Ctrl+C to stop")
+
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
